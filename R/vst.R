@@ -166,7 +166,9 @@ vst <- function(umi,
     log_gmean_dens <- density(x = genes_log_gmean_step1, bw = 'nrd', adjust = 1)
     sampling_prob <- 1 / (approx(x = log_gmean_dens$x, y = log_gmean_dens$y, xout = genes_log_gmean_step1)$y + .Machine$double.eps)
     if(!is.null(ref_umi_mean)){
+     names(sampling_prob)<-genes_step1
       genes_step1 <- intersect(genes_step1, names(ref_umi_mean))
+      sampling_prob <- sampling_prob[ genes_step1 ]
     }
     genes_step1 <- sample(x = genes_step1, size = n_genes, prob = sampling_prob)
     genes_log_gmean_step1 <- log10(row_gmean(umi[genes_step1, cells_step1], eps = gmean_eps))
