@@ -181,12 +181,12 @@ vst <- function(umi,
       query_ref_gmean <- cbind(genes_log_gmean[genes_step1], ref_umi_mean[genes_step1])
       colnames(query_ref_gmean) <- c("query", "reference")
       query_ref_gmean <- as.data.frame(query_ref_gmean)
+      # build query - reference counts model
       query_ref_gmean.lm <- lm( formula = query~reference,
                                data = query_ref_gmean )
+      # convert select genes reference counts to query counts
       residual_genes_correct_gmean <- predict( query_ref_gmean.lm,
                                               data.frame(reference = ref_umi_mean[ residual_genes ]) )
-      plot(genes_log_gmean[names(residual_genes_correct_gmean)],  residual_genes_correct_gmean)
-      
       genes_log_gmean <- residual_genes_correct_gmean
     }
   }
