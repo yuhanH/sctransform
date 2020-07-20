@@ -87,6 +87,7 @@ vst <- function(umi,
                 bin_size = 256,
                 min_cells = 5,
                 residual_genes = NULL, 
+                ref_umi_mean = NULL,
                 residual_type = 'pearson',
                 return_cell_attr = FALSE,
                 return_gene_attr = TRUE,
@@ -164,15 +165,30 @@ vst <- function(umi,
     # density-sample genes to speed up the first step
     log_gmean_dens <- density(x = genes_log_gmean_step1, bw = 'nrd', adjust = 1)
     sampling_prob <- 1 / (approx(x = log_gmean_dens$x, y = log_gmean_dens$y, xout = genes_log_gmean_step1)$y + .Machine$double.eps)
+    if(!is.null(ref_umi_mean)){
+      genes_step1 <- intersect(genes_step1, names(ref_umi_mean))
+    }
     genes_step1 <- sample(x = genes_step1, size = n_genes, prob = sampling_prob)
     genes_log_gmean_step1 <- log10(row_gmean(umi[genes_step1, cells_step1], eps = gmean_eps))
   }
 
   if( !is.null(residual_genes)){
-    genes <- intersect(residual_genes, genes)
-    genes <- unique(c(genes_step1, genes))
+    residual_genes <- intersect(residual_genes, genes)
+    genes <- unique(c(genes_step1, residual_genes))
     umi <- umi[genes, ]
     genes_log_gmean <-  genes_log_gmean[genes]
+    if(!is.null(ref_umi_mean)){
+      query_ref_gmean <- cbind(genes_log_gmean[genes_step1], ref_umi_mean[genes_step1])
+      colnames(query_ref_gmean) <- c("query", "reference")
+      query_ref_gmean <- as.data.frame(query_ref_gmean)
+      query_ref_gmean.lm <- lm( formula = query~reference,
+                               data = query_ref_gmean )
+      residual_genes_correct_gmean <- predict( query_ref_gmean.lm,
+                                              data.frame(reference = ref_umi_mean[ residual_genes ]) )
+      plot(genes_log_gmean[names(residual_genes_correct_gmean)],  residual_genes_correct_gmean)
+      
+      genes_log_gmean <- residual_genes_correct_gmean
+    }
   }
 
 
@@ -233,7 +249,7 @@ vst <- function(umi,
 
   if (!residual_type == 'none') {
     if(!is.null(residual_genes)){
-      genes <- intersect(residual_genes, genes)
+      genes <- residual_genes
     }
     if (show_progress) {
       message('Second step: Get residuals using fitted parameters for ', length(x = genes), ' genes')
