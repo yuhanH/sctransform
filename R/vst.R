@@ -66,6 +66,7 @@ NULL
 #' @importFrom stats glm ksmooth model.matrix as.formula approx density poisson var bw.SJ
 #' @importFrom utils txtProgressBar setTxtProgressBar capture.output
 #' @importFrom methods as
+#' @importFrom glmGamPoi glm_gp
 #'
 #' @export
 #'
@@ -335,7 +336,7 @@ get_model_pars <- function(genes_step1, bin_size, umi, model_str, cells_step1, m
   model_pars <- list()
   if (method == 'glmGamPoi') {
     model_matrix <- cbind(1,data_step1$log_umi)
-    fit <- glmGamPoi::glm_gp(data = as.matrix(umi[genes_step1,cells_step1,drop=FALSE]),design = model_matrix,size_factors = FALSE)
+    fit <- glm_gp(data = as.matrix(umi[genes_step1,cells_step1,drop=FALSE]),design = model_matrix,size_factors = FALSE)
     model_pars <- as.matrix(data.frame(cbind(1 / fit$overdispersions),fit$Beta))
     rownames(model_pars) <- genes_step1
     colnames(model_pars) <- c('theta', '(Intercept)',"log_umi")
