@@ -24,7 +24,8 @@ Imports:
   future.apply,
   ggplot2,
   reshape2,
-  gridExtra
+  gridExtra,
+  glmGamPoi
 LinkingTo: Rcpp (>= 0.11.0), RcppEigen
 Suggests:
   irlba,
