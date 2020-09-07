@@ -17,7 +17,7 @@ NULL
 #' @param latent_var_nonreg The non-regularized dependent variables to regress out as a character vector; must match column names in cell_attr; default is NULL
 #' @param n_genes Number of genes to use when estimating parameters (default uses 2000 genes, set to NULL to use all genes)
 #' @param n_cells Number of cells to use when estimating parameters (default uses all cells)
-#' @param method Method to use for initial parameter estimation; one of 'poisson', 'nb_fast', 'nb', 'nb_theta_given'
+#' @param method Method to use for initial parameter estimation; one of 'poisson', 'nb_fast', 'nb', 'nb_theta_given', 'glmGamPoi'
 #' @param do_regularize Boolean that, if set to FALSE, will bypass parameter regularization and use all genes in first step (ignoring n_genes).
 #' @param res_clip_range Numeric of length two specifying the min and max values the results will be clipped to; default is c(-sqrt(ncol(umi)), sqrt(ncol(umi)))
 #' @param bin_size Number of genes to put in each bin (to show progress)
@@ -60,6 +60,8 @@ NULL
 #' \code{family = MASS::negative.binomial(theta = theta)}.
 #' If \code{method} is set to 'nb', coefficients and theta are estimated by a single call to
 #' \code{MASS::glm.nb}.
+#' If \code{method} is set to 'glmGamPoi', coefficients and theta are estimated by a single call to
+#' \code{glmGamPoi::glm_gp}.
 #'
 #' @import Matrix
 #' @importFrom future.apply future_lapply
@@ -97,13 +99,27 @@ vst <- function(umi,
                 theta_given = NULL,
                 verbose = TRUE,
                 show_progress = verbose) {
+
+  # Check for suggested package
+  if (method == "glmGamPoi") {
+    glmGamPoi_check <- requireNamespace("glmGamPoi", quietly = TRUE)
+    if (!glmGamPoi_check){
+      stop('Please install the glmGamPoi package. See https://github.com/const-ae/glmGamPoi for details.')
+    }
+  }
+
   arguments <- as.list(environment())[-c(1, 2)]
   start_time <- Sys.time()
   if (is.null(cell_attr)) {
     cell_attr <- data.frame(row.names = colnames(umi))
   }
+
+  # these are the cell attributes that we know how to calculate given the count matrix
   known_attr <- c('umi', 'gene', 'log_umi', 'log_gene', 'umi_per_gene', 'log_umi_per_gene')
-  if (all(setdiff(latent_var, colnames(cell_attr)) %in% known_attr)) {
+  # these are the missing cell attributes specified in latent_var
+  missing_attr <- setdiff(latent_var, colnames(cell_attr))
+  # if there are missing attributes and we know how to calculate them, do it here
+  if (length(missing_attr) > 0 & all(missing_attr %in% known_attr)) {
     if (verbose) {
       message('Calculating cell attributes for input UMI matrix')
     }
@@ -185,11 +201,11 @@ vst <- function(umi,
   model_pars <- get_model_pars(genes_step1, bin_size, umi, model_str, cells_step1, method, data_step1, theta_given, verbose, show_progress)
 
   if (do_regularize) {
-    model_pars[, 'theta'] <- log10(model_pars[, 'theta'])
+    #model_pars[, 'theta'] <- log10(model_pars[, 'theta'])
     model_pars_fit <- reg_model_pars(model_pars, genes_log_gmean_step1, genes_log_gmean, cell_attr,
                                      batch_var, cells_step1, genes_step1, umi, bw_adjust, gmean_eps, verbose)
-    model_pars[, 'theta'] <- 10^model_pars[, 'theta']
-    model_pars_fit[, 'theta'] <- 10^model_pars_fit[, 'theta']
+    #model_pars[, 'theta'] <- 10^model_pars[, 'theta']
+    #model_pars_fit[, 'theta'] <- 10^model_pars_fit[, 'theta']
     model_pars_outliers <- attr(model_pars_fit, 'outliers')
   } else {
     model_pars_fit <- model_pars
@@ -325,6 +341,22 @@ get_model_pars <- function(genes_step1, bin_size, umi, model_str, cells_step1, m
   for (i in 1:max_bin) {
     genes_bin_regress <- genes_step1[bin_ind == i]
     umi_bin <- as.matrix(umi[genes_bin_regress, cells_step1, drop=FALSE])
+
+    # special block for the non-parallelized version of glmGamPoi
+    if (method == "glmGamPoi" & (future::nbrOfWorkers() < 2 | !future::supportsMulticore())) {
+      fit <- glmGamPoi::glm_gp(data = umi_bin,
+                               design = as.formula(gsub("y", "", model_str)),
+                               col_data = data_step1,
+                               size_factors = FALSE)
+      fit$theta <- pmin(1 / fit$overdispersions, rowMeans(fit$Mu) / 1e-4)
+      colnames(fit$Beta)[1] <- "(Intercept)"
+      model_pars[[i]] <- cbind(fit$theta, fit$Beta)
+      if (show_progress) {
+        setTxtProgressBar(pb, i)
+      }
+      next
+    }
+
     model_pars[[i]] <- do.call(rbind,
                                future_lapply(
                                  X = genes_bin_regress,
@@ -364,6 +396,18 @@ get_model_pars <- function(genes_step1, bin_size, umi, model_str, cells_step1, m
                                        fit$theta <- as.numeric(x = theta.ml(y = y, mu = fit$fitted))
                                      }
                                      return(c(fit$theta, fit$coefficients))
+                                   }
+                                   if (method == "glmGamPoi") {
+                                     fit <- glmGamPoi::glm_gp(data = y,
+                                                              design = as.formula(gsub("y", "", model_str)),
+                                                              col_data = data_step1,
+                                                              size_factors = FALSE)
+                                     fit$theta <- 1 / fit$overdispersions
+                                     if (is.infinite(fit$theta)) {
+                                       fit$theta <- mean(fit$Mu) / 1e-4
+                                     }
+                                     colnames(fit$Beta)[1] <- "(Intercept)"
+                                     return(cbind(fit$theta, fit$Beta))
                                    }
                                  }
                                )
@@ -416,6 +460,14 @@ reg_model_pars <- function(model_pars, genes_log_gmean_step1, genes_log_gmean, c
                            batch_var, cells_step1, genes_step1, umi, bw_adjust, gmean_eps,
                            verbose) {
   genes <- names(genes_log_gmean)
+
+  # we don't regularize theta directly, but instead transform to overdispersion factor
+  # variance of NB is mu * (1 + mu / theta)
+  # (1 + mu / theta) is what we call overdispersion factor here
+  od_factor <- log10(1 + 10^genes_log_gmean_step1 / model_pars[, 'theta'])
+  model_pars <- model_pars[, colnames(model_pars) != 'theta']
+  model_pars <- cbind(od_factor, model_pars)
+
   # look for outliers in the parameters
   # outliers are those that do not fit the overall relationship with the mean at all
   outliers <- apply(model_pars, 2, function(y) is_outlier(y, genes_log_gmean_step1))
@@ -441,9 +493,9 @@ reg_model_pars <- function(model_pars, genes_log_gmean_step1, genes_log_gmean, c
   model_pars_fit <- matrix(NA_real_, length(genes), ncol(model_pars),
                            dimnames = list(genes, colnames(model_pars)))
 
-  # fit / regularize theta
-  model_pars_fit[o, 'theta'] <- ksmooth(x = genes_log_gmean_step1, y = model_pars[, 'theta'],
-                                             x.points = x_points, bandwidth = bw, kernel='normal')$y
+  # fit / regularize overdispersion factor
+  model_pars_fit[o, 'od_factor'] <- ksmooth(x = genes_log_gmean_step1, y = model_pars[, 'od_factor'],
+                                            x.points = x_points, bandwidth = bw, kernel='normal')$y
 
   if (is.null(batch_var)){
     # global fit / regularization for all coefficients
@@ -476,6 +528,12 @@ reg_model_pars <- function(model_pars, genes_log_gmean_step1, genes_log_gmean, c
       }
     }
   }
+
+  # back-transform overdispersion factor to theta
+  theta <- 10^genes_log_gmean / (10^model_pars_fit[, 'od_factor'] - 1)
+  model_pars_fit <- model_pars_fit[, colnames(model_pars_fit) != 'od_factor']
+  model_pars_fit <- cbind(theta, model_pars_fit)
+
   attr(model_pars_fit, 'outliers') <- outliers
   return(model_pars_fit)
 }

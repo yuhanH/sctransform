@@ -4,15 +4,30 @@
 \alias{vst}
 \title{Variance stabilizing transformation for UMI count data}
 \usage{
-vst(umi, cell_attr = NULL, latent_var = c("log_umi"),
-  batch_var = NULL, latent_var_nonreg = NULL, n_genes = 2000,
-  n_cells = NULL, method = "poisson", do_regularize = TRUE,
+vst(
+  umi,
+  cell_attr = NULL,
+  latent_var = c("log_umi"),
+  batch_var = NULL,
+  latent_var_nonreg = NULL,
+  n_genes = 2000,
+  n_cells = NULL,
+  method = "poisson",
+  do_regularize = TRUE,
   res_clip_range = c(-sqrt(ncol(umi)), sqrt(ncol(umi))),
-  bin_size = 256, min_cells = 5, residual_type = "pearson",
-  return_cell_attr = FALSE, return_gene_attr = TRUE,
-  return_corrected_umi = FALSE, min_variance = -Inf, bw_adjust = 3,
-  gmean_eps = 1, theta_given = NULL, verbose = TRUE,
-  show_progress = verbose)
+  bin_size = 256,
+  min_cells = 5,
+  residual_type = "pearson",
+  return_cell_attr = FALSE,
+  return_gene_attr = TRUE,
+  return_corrected_umi = FALSE,
+  min_variance = -Inf,
+  bw_adjust = 3,
+  gmean_eps = 1,
+  theta_given = NULL,
+  verbose = TRUE,
+  show_progress = verbose
+)
 }
 \arguments{
 \item{umi}{A matrix of UMI counts with genes as rows and cells as columns}
@@ -29,7 +44,7 @@ vst(umi, cell_attr = NULL, latent_var = c("log_umi"),
 
 \item{n_cells}{Number of cells to use when estimating parameters (default uses all cells)}
 
-\item{method}{Method to use for initial parameter estimation; one of 'poisson', 'nb_fast', 'nb', 'nb_theta_given'}
+\item{method}{Method to use for initial parameter estimation; one of 'poisson', 'nb_fast', 'nb', 'nb_theta_given', 'glmGamPoi'}
 
 \item{do_regularize}{Boolean that, if set to FALSE, will bypass parameter regularization and use all genes in first step (ignoring n_genes).}
 
@@ -95,6 +110,8 @@ model in a second call to glm with
 \code{family = MASS::negative.binomial(theta = theta)}.
 If \code{method} is set to 'nb', coefficients and theta are estimated by a single call to
 \code{MASS::glm.nb}.
+If \code{method} is set to 'glmGamPoi', coefficients and theta are estimated by a single call to
+\code{glmGamPoi::glm_gp}.
 }
 
 \examples{
